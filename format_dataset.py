@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 import databento as db
-import pandas as pd
+import polars as pl
 
 
 def find_files(data_dir: str) -> list[str]:
@@ -14,13 +14,13 @@ def find_files(data_dir: str) -> list[str]:
     return files
 
 
-def load_files(files: list[str]) -> pd.DataFrame:
+def load_files(files: list[str]) -> pl.DataFrame:
     dfs = []
     for i, f in enumerate(files, 1):
         print(f"[{i}/{len(files)}] Loading {f}")
         store = db.DBNStore.from_file(f)
-        dfs.append(store.to_df())
-    return pd.concat(dfs, ignore_index=True)
+        dfs.append(pl.from_pandas(store.to_df()))
+    return pl.concat(dfs)
 
 
 def main():
@@ -70,9 +70,9 @@ def main():
     print(f"Saving {len(df):,} rows to {out_path}")
 
     if args.format == "parquet":
-        df.to_parquet(out_path, index=False)
+        df.write_parquet(out_path)
     else:
-        df.to_csv(out_path, index=False)
+        df.write_csv(out_path)
 
     print("Done ✅")
 
