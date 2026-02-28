@@ -8,7 +8,8 @@ dependencies = [
     "databento>=0.72.0",
     "ipykernel>=7.2.0",
     "jupyter>=1.1.1",
-    "pandas>=3.0.1",
+    "matplotlib>=3.10.8",
+    "polars>=1.0.0",
     "pyarrow>=23.0.1",
     "zstandard>=0.25.0",
 ]
