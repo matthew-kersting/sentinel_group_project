@@ -17,3 +17,6 @@ data/formatted/*
 
 data/raw/*
 !data/raw/.gitkeep
+
+data/output/*
+!data/output/.gitkeep
