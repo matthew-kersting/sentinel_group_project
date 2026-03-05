@@ -219,7 +219,7 @@ def plot(df: pl.DataFrame, out_path: str = "data/output/market_activity.png") ->
 
     # ── Save ──────────────────────────────────────────────────────────────────
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=BG)
+    plt.savefig(out_path, dpi=400, bbox_inches="tight", facecolor=BG)
     plt.show()
     print(f"Saved → {out_path}")
 
