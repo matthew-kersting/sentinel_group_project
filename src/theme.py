@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-TEAL   = "#1BAAB8"   # primary accent (titles, column names, line charts)
-BLUE   = "#4C72B0"
+TEAL = "#1BAAB8"  # primary accent (titles, column names, line charts)
+BLUE = "#4C72B0"
 ORANGE = "#DD8452"
-GREEN  = "#55A868"
-RED    = "#C44E52"
+GREEN = "#55A868"
+RED = "#C44E52"
 PURPLE = "#8172B2"
-GRAY   = "#666666"
-BG     = "white"
+GRAY = "#666666"
+BG = "white"
 
 # Semantic mappings
 ACTION_COLORS = {"A": BLUE, "C": ORANGE, "F": GREEN, "T": RED}
@@ -20,16 +20,16 @@ ACTION_COLORS = {"A": BLUE, "C": ORANGE, "F": GREEN, "T": RED}
 PIE_COLORS = ["#C0C0C0", "#555555", "#1A1A1A", TEAL]  # A, C, T, F order
 
 # Schema table
-HEADER_COLOR = "#1C3040"           # dark header background
-ROW_COLORS   = ["#EEF1FA", "#F8F9FE"]
+HEADER_COLOR = "#1C3040"  # dark header background
+ROW_COLORS = ["#EEF1FA", "#F8F9FE"]
 
 # ── Font sizes ────────────────────────────────────────────────────────────────
 FONT_SUPTITLE = 13
-FONT_TITLE    = 11
-FONT_AXIS     = 10
-FONT_TICK     =  9
-FONT_SMALL    =  8
-FONT_TINY     =  7.5
+FONT_TITLE = 11
+FONT_AXIS = 10
+FONT_TICK = 9
+FONT_SMALL = 8
+FONT_TINY = 7.5
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -46,9 +46,11 @@ def millions_formatter():
 
 def apply_figure_defaults():
     """Call once per script to set rcParams shared across all figures."""
-    plt.rcParams.update({
-        "figure.facecolor": BG,
-        "axes.facecolor":   BG,
-        "font.family":      "sans-serif",
-        "axes.grid":        False,
-    })
+    plt.rcParams.update(
+        {
+            "figure.facecolor": BG,
+            "axes.facecolor": BG,
+            "font.family": "sans-serif",
+            "axes.grid": False,
+        }
+    )

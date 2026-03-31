@@ -22,17 +22,19 @@ import polars as pl
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-DATA_PATH = Path(__file__).parent.parent / "data" / "formatted" / "xnas_itch_mbo.parquet"
+DATA_PATH = (
+    Path(__file__).parent.parent / "data" / "formatted" / "xnas_itch_mbo.parquet"
+)
 
 # Regular NYSE/NASDAQ session in UTC (9:30–16:00 ET = 13:30–20:00 UTC)
 SESSION_START_UTC = 13
-SESSION_END_UTC   = 20
+SESSION_END_UTC = 20
 
 # Default chronological split boundaries
-DEFAULT_VAL_START  = "2025-10-22"
+DEFAULT_VAL_START = "2025-10-22"
 DEFAULT_TEST_START = "2025-10-27"
 
-_EPS = 1e-9   # prevent divide-by-zero in OFI
+_EPS = 1e-9  # prevent divide-by-zero in OFI
 
 
 # ── Step 1: Load ──────────────────────────────────────────────────────────────
@@ -72,6 +74,7 @@ def load_raw(
 
 # ── Step 2: Build features ────────────────────────────────────────────────────
 
+
 def build_ofi_features(
     df: pl.DataFrame,
     freq: str = "1m",
@@ -110,15 +113,16 @@ def build_ofi_features(
     adds = df.filter(pl.col("action") == "A")
 
     add_agg = (
-        adds
-        .sort("ts_event")
+        adds.sort("ts_event")
         .group_by_dynamic("ts_event", every=freq)
-        .agg([
-            pl.col("size").filter(pl.col("side") == "B").sum().alias("buy_vol"),
-            pl.col("size").filter(pl.col("side") == "A").sum().alias("sell_vol"),
-            pl.col("size").filter(pl.col("side") == "B").count().alias("n_bids"),
-            pl.col("size").filter(pl.col("side") == "A").count().alias("n_asks"),
-        ])
+        .agg(
+            [
+                pl.col("size").filter(pl.col("side") == "B").sum().alias("buy_vol"),
+                pl.col("size").filter(pl.col("side") == "A").sum().alias("sell_vol"),
+                pl.col("size").filter(pl.col("side") == "B").count().alias("n_bids"),
+                pl.col("size").filter(pl.col("side") == "A").count().alias("n_asks"),
+            ]
+        )
         .rename({"ts_event": "bucket"})
     )
 
@@ -126,8 +130,7 @@ def build_ofi_features(
     cancels = df.filter(pl.col("action") == "C")
 
     cancel_agg = (
-        cancels
-        .sort("ts_event")
+        cancels.sort("ts_event")
         .group_by_dynamic("ts_event", every=freq)
         .agg(pl.col("size").sum().alias("cancel_vol"))
         .rename({"ts_event": "bucket"})
@@ -137,49 +140,53 @@ def build_ofi_features(
     trades = df.filter(pl.col("action").is_in(["T", "F"]))
 
     trade_agg = (
-        trades
-        .sort("ts_event")
+        trades.sort("ts_event")
         .group_by_dynamic("ts_event", every=freq)
-        .agg([
-            pl.col("size").filter(pl.col("side") == "B").sum().alias("trade_buy_vol"),
-            pl.col("size").filter(pl.col("side") == "A").sum().alias("trade_sell_vol"),
-            # VWAP: Σ(price × size) / Σ(size)
-            (pl.col("price") * pl.col("size")).sum().alias("_pv"),
-            pl.col("size").sum().alias("_tv"),
-            pl.col("price").count().alias("n_trades"),
-        ])
-        .with_columns(
-            (pl.col("_pv") / pl.col("_tv")).alias("vwap")
+        .agg(
+            [
+                pl.col("size")
+                .filter(pl.col("side") == "B")
+                .sum()
+                .alias("trade_buy_vol"),
+                pl.col("size")
+                .filter(pl.col("side") == "A")
+                .sum()
+                .alias("trade_sell_vol"),
+                # VWAP: Σ(price × size) / Σ(size)
+                (pl.col("price") * pl.col("size")).sum().alias("_pv"),
+                pl.col("size").sum().alias("_tv"),
+                pl.col("price").count().alias("n_trades"),
+            ]
         )
+        .with_columns((pl.col("_pv") / pl.col("_tv")).alias("vwap"))
         .drop(["_pv", "_tv"])
         .rename({"ts_event": "bucket"})
     )
 
     # ── Join and derive imbalance metrics ─────────────────────────────────────
     features = (
-        add_agg
-        .join(cancel_agg, on="bucket", how="left")
-        .join(trade_agg,  on="bucket", how="left")
+        add_agg.join(cancel_agg, on="bucket", how="left")
+        .join(trade_agg, on="bucket", how="left")
         .fill_null(0)
-        .with_columns([
-            # Order-flow imbalance from limit adds
-            (
-                (pl.col("buy_vol") - pl.col("sell_vol")) /
-                (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
-            ).alias("ofi"),
-
-            # Trade-direction imbalance
-            (
-                (pl.col("trade_buy_vol") - pl.col("trade_sell_vol")) /
-                (pl.col("trade_buy_vol") + pl.col("trade_sell_vol") + _EPS)
-            ).alias("trade_ofi"),
-
-            # Fraction of add volume that was subsequently cancelled (same bucket)
-            (
-                pl.col("cancel_vol") /
-                (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
-            ).alias("cancel_ratio"),
-        ])
+        .with_columns(
+            [
+                # Order-flow imbalance from limit adds
+                (
+                    (pl.col("buy_vol") - pl.col("sell_vol"))
+                    / (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
+                ).alias("ofi"),
+                # Trade-direction imbalance
+                (
+                    (pl.col("trade_buy_vol") - pl.col("trade_sell_vol"))
+                    / (pl.col("trade_buy_vol") + pl.col("trade_sell_vol") + _EPS)
+                ).alias("trade_ofi"),
+                # Fraction of add volume that was subsequently cancelled (same bucket)
+                (
+                    pl.col("cancel_vol")
+                    / (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
+                ).alias("cancel_ratio"),
+            ]
+        )
         .sort("bucket")
     )
 
@@ -187,6 +194,7 @@ def build_ofi_features(
 
 
 # ── Step 3: Labels ────────────────────────────────────────────────────────────
+
 
 def add_forward_returns(
     features: pl.DataFrame,
@@ -205,11 +213,8 @@ def add_forward_returns(
     horizon  : number of time buckets to look ahead (default: 5)
     """
     df = (
-        features
-        .filter(pl.col("vwap") > 0)
-        .with_columns(
-            pl.col("vwap").shift(-horizon).alias("vwap_fwd")
-        )
+        features.filter(pl.col("vwap") > 0)
+        .with_columns(pl.col("vwap").shift(-horizon).alias("vwap_fwd"))
         .filter(pl.col("vwap_fwd").is_not_null() & (pl.col("vwap_fwd") > 0))
         .with_columns(
             (pl.col("vwap_fwd") / pl.col("vwap")).log(base=2.71828).alias("fwd_return")
@@ -221,11 +226,12 @@ def add_forward_returns(
 
 # ── Step 4: Train / Val / Test split ─────────────────────────────────────────
 
+
 def split_by_date(
     df: pl.DataFrame,
-    val_start:  str = DEFAULT_VAL_START,
+    val_start: str = DEFAULT_VAL_START,
     test_start: str = DEFAULT_TEST_START,
-    date_col:   str = "bucket",
+    date_col: str = "bucket",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """
     Split a time-sorted DataFrame into train / val / test on hard date cuts.
@@ -250,26 +256,27 @@ def split_by_date(
     -------
     (train, val, test) as Polars DataFrames
     """
-    val_dt  = pl.lit(val_start).str.to_date().cast(pl.Datetime("ns", "UTC"))
+    val_dt = pl.lit(val_start).str.to_date().cast(pl.Datetime("ns", "UTC"))
     test_dt = pl.lit(test_start).str.to_date().cast(pl.Datetime("ns", "UTC"))
 
     col = pl.col(date_col)
 
     train = df.filter(col < val_dt)
-    val   = df.filter((col >= val_dt) & (col < test_dt))
-    test  = df.filter(col >= test_dt)
+    val = df.filter((col >= val_dt) & (col < test_dt))
+    test = df.filter(col >= test_dt)
 
     return train, val, test
 
 
 # ── Convenience wrapper ───────────────────────────────────────────────────────
 
+
 def load_splits(
-    path:       str | Path = DATA_PATH,
-    freq:       str        = "1m",
-    horizon:    int        = 5,
-    val_start:  str        = DEFAULT_VAL_START,
-    test_start: str        = DEFAULT_TEST_START,
+    path: str | Path = DATA_PATH,
+    freq: str = "1m",
+    horizon: int = 5,
+    val_start: str = DEFAULT_VAL_START,
+    test_start: str = DEFAULT_TEST_START,
     regular_session_only: bool = True,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """
@@ -280,9 +287,9 @@ def load_splits(
         cancel_vol, trade_buy_vol, trade_sell_vol, n_trades,
         vwap, ofi, trade_ofi, cancel_ratio, fwd_return
     """
-    df       = load_raw(path, regular_session_only=regular_session_only)
+    df = load_raw(path, regular_session_only=regular_session_only)
     features = build_ofi_features(df, freq=freq)
-    labeled  = add_forward_returns(features, horizon=horizon)
+    labeled = add_forward_returns(features, horizon=horizon)
     return split_by_date(labeled, val_start=val_start, test_start=test_start)
 
 
@@ -297,8 +304,10 @@ if __name__ == "__main__":
         pct = 100 * len(split) / total
         date_min = split["bucket"].min()
         date_max = split["bucket"].max()
-        print(f"  {name:5s}  {len(split):5d} rows ({pct:.0f}%)  "
-              f"{date_min.date()} → {date_max.date()}")
+        print(
+            f"  {name:5s}  {len(split):5d} rows ({pct:.0f}%)  "
+            f"{date_min.date()} → {date_max.date()}"
+        )
 
     print("\nSample feature stats (train):")
     print(train.select(["ofi", "trade_ofi", "cancel_ratio", "fwd_return"]).describe())
