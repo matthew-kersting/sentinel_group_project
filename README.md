@@ -22,7 +22,8 @@ Data source: **QBTS (D-Wave Quantum)** — NASDAQ ITCH MBO feed via Databento, O
 │   ├── data_overview.py            # Slide figure: schema card + event distribution + price series
 │   ├── market_activity.py          # Slide figure: 4-panel market activity deep-dive
 │   ├── mbo_explainer.py            # Slide figure: synthetic order lifecycle diagram
-│   └── ofi_analysis.py             # OFI quantification + linear regression model
+│   ├── ofi_analysis.py             # OFI quantification + linear regression model
+│   └── rf_classifier.py            # Random Forest price-direction classifier (3-class)
 │
 ├── format_dataset.py               # Converts raw .dbn.zst files → parquet
 ├── data_exploration.ipynb          # Interactive EDA notebook
@@ -125,7 +126,48 @@ uv run python ofi_analysis.py
 
 ---
 
-### 3. Slide figures
+### 3. Random Forest classifier (`src/rf_classifier.py`)
+
+Predicts price direction (Up / Flat / Down) from rolling event-level MBO features.
+Originally authored by Shangze; data loading adapted to read from `xnas_itch_mbo.parquet` (first 150k rows), figures saved to `data/output/`.
+
+```bash
+uv run ./src/rf_classifier.py
+```
+
+**Feature engineering** (event-level, rolling windows of 10 / 30 / 100 events):
+- Price mean, std, min, max, range
+- Volume sum and mean
+- Order-Flow Imbalance (`ofi_10`, `ofi_30`, `ofi_100`)
+- Trade event ratio
+- Price momentum returns (lag 1, 5, 20)
+- Price deviation from rolling mean
+- Hour, minute, session
+
+**Label:** 3-class direction 10 events ahead — Up (+1), Flat (0), Down (−1) — with a 0.01% threshold.
+
+**Model:** Random Forest (300 trees, `max_depth=12`, `class_weight="balanced"`).
+
+**Outputs (`data/output/`):**
+
+| File | Description |
+|---|---|
+| `fig1_label_distribution.png` | Training set class balance |
+| `fig2_confusion_matrix.png` | Row-normalized confusion matrix on test set |
+| `fig3_feature_importance.png` | Gini importance, top 20 features |
+| `fig4_roc_curve.png` | One-vs-rest ROC curves with AUC |
+| `fig5_pr_curve.png` | Precision-Recall curves with AP |
+| `fig6_cv_scores.png` | 5-fold CV accuracy on train set |
+| `fig7_prob_distribution.png` | Predicted probability histograms by class |
+| `fig8_calibration.png` | Confidence calibration curves |
+| `fig9_permutation_importance.png` | Permutation importance on test set |
+| `fig10_hyperparam_sensitivity.png` | Accuracy vs n_estimators |
+| `fig11_depth_sensitivity.png` | Accuracy vs max_depth |
+| `fig12_learning_curve.png` | Learning curve (train size vs accuracy) |
+
+---
+
+### 4. Slide figures
 
 All figures use the shared theme in `src/theme.py` and save to `data/output/`.
 

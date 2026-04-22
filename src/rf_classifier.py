@@ -1,4 +1,4 @@
- # ============================================================
+# ============================================================
 # Random Forest Price Direction Prediction
 # Based on NASDAQ ITCH MBO Order Flow Data
 # Final Project - Machine Learning Theory
@@ -23,7 +23,8 @@ from sklearn.metrics import (classification_report, confusion_matrix,
                               precision_recall_curve, average_precision_score)
 from sklearn.inspection import permutation_importance
 
-import databento as db
+import polars as pl
+from pathlib import Path
 
 # ── Global plot style ────────────────────────────────────────
 plt.rcParams['figure.dpi'] = 130
@@ -32,28 +33,24 @@ plt.rcParams['axes.spines.top'] = False
 plt.rcParams['axes.spines.right'] = False
 COLORS = ['#2ecc71', '#e74c3c', '#3498db', '#f39c12', '#9b59b6']
 
+OUT_DIR = Path(__file__).parent.parent / "data" / "output"
+
 # ============================================================
 # 1. Data Loading
 # ============================================================
-DATA_DIR = r"C:\Users\19782\OneDrive - University of Florida\Dropbox_Backup\Course\Machine Learning Theory\GroupHW\XNAS-20260227-QVD7UYV7GQ\XNAS-20260227-QVD7UYV7GQ"
+DATA_PATH = Path(__file__).parent.parent / "data" / "formatted" / "xnas_itch_mbo.parquet"
 
-files = sorted(glob.glob(os.path.join(DATA_DIR, "xnas-itch-*.mbo.dbn.zst")))
-print(f"Found {len(files)} files")
-
-# Load first MAX_FILES files, CHUNK_ROWS rows each
-MAX_FILES  = 3       # number of daily files to load
+MAX_FILES  = 3       # number of daily files to simulate
 CHUNK_ROWS = 50000   # rows per file
 
-all_dfs = []
-for f in files[:MAX_FILES]:
-    store = db.DBNStore.from_file(f)
-    df_iter = store.to_df(count=CHUNK_ROWS)
-    chunk = next(iter(df_iter))
-    chunk['date'] = os.path.basename(f).split('.')[0]
-    all_dfs.append(chunk)
-    print(f"  Loaded {os.path.basename(f)}: {len(chunk)} rows")
-
-df_raw = pd.concat(all_dfs, ignore_index=False).sort_index()
+df_raw = (
+    pl.scan_parquet(DATA_PATH)
+    .head(MAX_FILES * CHUNK_ROWS)
+    .collect()
+    .to_pandas()
+)
+df_raw['symbol'] = 'QBTS'
+df_raw = df_raw.sort_values('ts_event').reset_index(drop=True)
 print(f"\nRaw data shape: {df_raw.shape[0]} rows x {df_raw.shape[1]} cols")
 print(df_raw.head(3))
 
@@ -254,8 +251,7 @@ for bar, val in zip(bars, label_counts.values):
 ax.set_title('Training Set Label Distribution', fontsize=14, fontweight='bold')
 ax.set_ylabel('Sample Count')
 plt.tight_layout()
-plt.savefig('fig1_label_distribution.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig1_label_distribution.png', bbox_inches='tight')
 
 # ── Figure 2: Confusion Matrix ────────────────────────────────
 fig, ax = plt.subplots(figsize=(6, 5))
@@ -270,8 +266,7 @@ ax.set_xlabel('Predicted Label', fontsize=12)
 ax.set_ylabel('True Label', fontsize=12)
 ax.set_title('Confusion Matrix (Row-Normalized %)', fontsize=14, fontweight='bold')
 plt.tight_layout()
-plt.savefig('fig2_confusion_matrix.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig2_confusion_matrix.png', bbox_inches='tight')
 
 # ── Figure 3: Feature Importance Top 20 ──────────────────────
 importances = rf.feature_importances_
@@ -288,8 +283,7 @@ ax.axvline(top20.mean(), color='red', linestyle='--', linewidth=1.2,
            label=f'Mean = {top20.mean():.4f}')
 ax.legend()
 plt.tight_layout()
-plt.savefig('fig3_feature_importance.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig3_feature_importance.png', bbox_inches='tight')
 
 # ── Figure 4: ROC Curves (One-vs-Rest) ───────────────────────
 fig, ax = plt.subplots(figsize=(7, 5))
@@ -306,8 +300,7 @@ ax.set_ylabel('True Positive Rate (TPR)', fontsize=12)
 ax.set_title('ROC Curves (One-vs-Rest)', fontsize=14, fontweight='bold')
 ax.legend(fontsize=10)
 plt.tight_layout()
-plt.savefig('fig4_roc_curve.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig4_roc_curve.png', bbox_inches='tight')
 
 # ── Figure 5: Precision-Recall Curves ────────────────────────
 fig, ax = plt.subplots(figsize=(7, 5))
@@ -323,8 +316,7 @@ ax.set_ylabel('Precision', fontsize=12)
 ax.set_title('Precision-Recall Curves', fontsize=14, fontweight='bold')
 ax.legend(fontsize=10)
 plt.tight_layout()
-plt.savefig('fig5_pr_curve.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig5_pr_curve.png', bbox_inches='tight')
 
 # ── Figure 6: Cross-Validation Fold Accuracy ─────────────────
 fig, ax = plt.subplots(figsize=(6, 4))
@@ -342,8 +334,7 @@ ax.set_title('5-Fold Cross-Validation Accuracy', fontsize=14, fontweight='bold')
 ax.set_ylim(max(0, cv_scores.min() - 0.05), min(1, cv_scores.max() + 0.05))
 ax.legend()
 plt.tight_layout()
-plt.savefig('fig6_cv_scores.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig6_cv_scores.png', bbox_inches='tight')
 
 # ── Figure 7: Predicted Probability Distributions ────────────
 fig, axes = plt.subplots(1, 3, figsize=(13, 4))
@@ -356,8 +347,7 @@ for i, (cls, lbl) in enumerate(class_labels.items()):
     axes[i].set_ylabel('Frequency')
 plt.suptitle('Predicted Probability Distributions by Class', fontsize=14, fontweight='bold')
 plt.tight_layout()
-plt.savefig('fig7_prob_distribution.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig7_prob_distribution.png', bbox_inches='tight')
 
 # ── Figure 8: Calibration Curves ─────────────────────────────
 fig, axes = plt.subplots(1, 3, figsize=(13, 4))
@@ -382,8 +372,7 @@ for i, (cls, lbl) in enumerate(class_labels.items()):
     axes[i].legend(fontsize=9)
 plt.suptitle('Confidence Calibration Curves', fontsize=14, fontweight='bold')
 plt.tight_layout()
-plt.savefig('fig8_calibration.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig8_calibration.png', bbox_inches='tight')
 
 # ============================================================
 # 9. Sensitivity Analysis (Permutation Importance)
@@ -413,8 +402,7 @@ ax.set_xlabel('Accuracy Drop (higher = more important)', fontsize=12)
 ax.set_title('Sensitivity Analysis: Permutation Feature Importance - Top 20',
              fontsize=14, fontweight='bold')
 plt.tight_layout()
-plt.savefig('fig9_permutation_importance.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig9_permutation_importance.png', bbox_inches='tight')
 
 # ── Figure 10: Hyperparameter Sensitivity - n_estimators ─────
 print("\nHyperparameter sensitivity: n_estimators...")
@@ -441,8 +429,7 @@ ax.set_title('Hyperparameter Sensitivity: Number of Trees vs. Accuracy',
              fontsize=14, fontweight='bold')
 ax.legend()
 plt.tight_layout()
-plt.savefig('fig10_hyperparam_sensitivity.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig10_hyperparam_sensitivity.png', bbox_inches='tight')
 
 # ── Figure 11: Hyperparameter Sensitivity - max_depth ────────
 print("\nHyperparameter sensitivity: max_depth...")
@@ -471,8 +458,7 @@ ax.set_title('Hyperparameter Sensitivity: Tree Depth vs. Accuracy',
              fontsize=14, fontweight='bold')
 ax.legend()
 plt.tight_layout()
-plt.savefig('fig11_depth_sensitivity.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig11_depth_sensitivity.png', bbox_inches='tight')
 
 # ── Figure 12: Learning Curve ─────────────────────────────────
 print("\nGenerating learning curve...")
@@ -502,8 +488,7 @@ ax.set_ylabel('Accuracy', fontsize=12)
 ax.set_title('Learning Curve', fontsize=14, fontweight='bold')
 ax.legend()
 plt.tight_layout()
-plt.savefig('fig12_learning_curve.png', bbox_inches='tight')
-plt.show()
+plt.savefig(OUT_DIR / 'fig12_learning_curve.png', bbox_inches='tight')
 
 # ============================================================
 # 10. Summary
