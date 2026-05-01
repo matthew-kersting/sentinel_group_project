@@ -39,7 +39,7 @@ _EPS = 1e-9  # prevent divide-by-zero in OFI
 
 # ── Step 1: Load ──────────────────────────────────────────────────────────────
 
-_NEEDED_COLS = ["ts_event", "action", "side", "price", "size"]
+_NEEDED_COLS = ["ts_event", "action", "side", "price", "size", "order_id"]
 
 
 def load_raw(
@@ -49,8 +49,8 @@ def load_raw(
     """
     Load the MBO parquet and return a clean base DataFrame.
 
-    Only the five columns needed for OFI feature-building are loaded;
-    the remaining nine are discarded at read time to save memory.
+    Only the six columns needed for OFI feature-building are loaded;
+    the remaining eight are discarded at read time to save memory.
 
     Filters applied:
     - Drop Reset (R) events — bookkeeping artefacts, not meaningful signals
@@ -73,6 +73,44 @@ def load_raw(
 
 
 # ── Step 2: Build features ────────────────────────────────────────────────────
+
+
+def _lifespan_per_bucket(df: pl.DataFrame, freq: str) -> pl.DataFrame:
+    """
+    Per-bucket mean and median order lifespan (seconds from Add to first Cancel/Fill/Trade).
+    Only orders where both Add and an ending event appear in df are counted.
+    """
+    lifecycle = (
+        df.filter(pl.col("action").is_in(["A", "C", "F", "T"]))
+        .sort(["order_id", "ts_event"])
+        .group_by("order_id")
+        .agg(
+            [
+                pl.col("ts_event").filter(pl.col("action") == "A").first().alias("add_time"),
+                pl.col("ts_event")
+                .filter(pl.col("action").is_in(["C", "F", "T"]))
+                .first()
+                .alias("end_time"),
+            ]
+        )
+        .drop_nulls()
+        .with_columns(
+            [
+                (pl.col("end_time") - pl.col("add_time"))
+                .dt.total_nanoseconds()
+                .alias("lifespan_ns"),
+                pl.col("add_time").dt.truncate(freq).alias("bucket"),
+            ]
+        )
+        .filter(pl.col("lifespan_ns") > 0)
+    )
+
+    return lifecycle.group_by("bucket").agg(
+        [
+            (pl.col("lifespan_ns") / 1e9).mean().alias("mean_lifespan_s"),
+            (pl.col("lifespan_ns") / 1e9).median().alias("median_lifespan_s"),
+        ]
+    )
 
 
 def build_ofi_features(
@@ -98,6 +136,10 @@ def build_ofi_features(
     - vwap                            : volume-weighted average trade price
     - n_trades                        : number of trade events
     - cancel_ratio                    : cancel volume / add volume (liquidity proxy)
+    - cancel_rate                     : cancel event count / add event count
+    - cancel_to_trade_ratio           : cancel count / trade count (typically ~10:1)
+    - mean_lifespan_s                 : mean seconds from Add to first Cancel/Fill/Trade
+    - median_lifespan_s               : median of the same
 
     Parameters
     ----------
@@ -132,7 +174,12 @@ def build_ofi_features(
     cancel_agg = (
         cancels.sort("ts_event")
         .group_by_dynamic("ts_event", every=freq)
-        .agg(pl.col("size").sum().alias("cancel_vol"))
+        .agg(
+            [
+                pl.col("size").sum().alias("cancel_vol"),
+                pl.col("size").count().alias("n_cancels"),
+            ]
+        )
         .rename({"ts_event": "bucket"})
     )
 
@@ -164,20 +211,23 @@ def build_ofi_features(
     )
 
     # ── Join and derive imbalance metrics ─────────────────────────────────────
+    lifespan = _lifespan_per_bucket(df, freq)
+
     features = (
         add_agg.join(cancel_agg, on="bucket", how="left")
         .join(trade_agg, on="bucket", how="left")
+        .join(lifespan, on="bucket", how="left")
         .fill_null(0)
         .with_columns(
             [
                 # Order-flow imbalance from limit adds
                 (
-                    (pl.col("buy_vol") - pl.col("sell_vol"))
+                    (pl.col("buy_vol").cast(pl.Int64) - pl.col("sell_vol").cast(pl.Int64))
                     / (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
                 ).alias("ofi"),
                 # Trade-direction imbalance
                 (
-                    (pl.col("trade_buy_vol") - pl.col("trade_sell_vol"))
+                    (pl.col("trade_buy_vol").cast(pl.Int64) - pl.col("trade_sell_vol").cast(pl.Int64))
                     / (pl.col("trade_buy_vol") + pl.col("trade_sell_vol") + _EPS)
                 ).alias("trade_ofi"),
                 # Fraction of add volume that was subsequently cancelled (same bucket)
@@ -185,6 +235,16 @@ def build_ofi_features(
                     pl.col("cancel_vol")
                     / (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
                 ).alias("cancel_ratio"),
+                # Cancel events / add events (count-based)
+                (
+                    pl.col("n_cancels")
+                    / (pl.col("n_bids") + pl.col("n_asks") + _EPS)
+                ).alias("cancel_rate"),
+                # Cancel count / trade count (~10:1 is normal for electronic markets)
+                (
+                    pl.col("n_cancels")
+                    / (pl.col("n_trades") + _EPS)
+                ).alias("cancel_to_trade_ratio"),
             ]
         )
         .sort("bucket")
