@@ -38,14 +38,18 @@ class MarketMakingEnv(gym.Env):
     TICK_SIZE = 0.01
 
     # Environment parameters
-    MAX_INVENTORY = 1000     # max shares to hold
-    INVENTORY_PENALTY = 0.01 # penalty coefficient per share per step
-    FILL_SIZE = 100          # shares per fill (1 round lot)
+    MAX_INVENTORY = 1000  # max shares to hold
+    INVENTORY_PENALTY = 0.01  # penalty coefficient per share per step
+    FILL_SIZE = 100  # shares per fill (1 round lot)
 
     # Feature columns used for observation
     OBS_FEATURES = [
-        "spread", "book_imbalance", "ofi_rolling", "volatility",
-        "trade_intensity", "cancel_add_ratio",
+        "spread",
+        "book_imbalance",
+        "ofi_rolling",
+        "volatility",
+        "trade_intensity",
+        "cancel_add_ratio",
     ]
 
     def __init__(
@@ -141,7 +145,9 @@ class MarketMakingEnv(gym.Env):
         if self.episode_length:
             t_frac = (self._step_idx - self._start_idx) / self.episode_length
         else:
-            t_frac = (self._step_idx - self._start_idx) / max(1, self._end_idx - self._start_idx)
+            t_frac = (self._step_idx - self._start_idx) / max(
+                1, self._end_idx - self._start_idx
+            )
         features.append(t_frac)
 
         return np.array(features, dtype=np.float32)
@@ -231,10 +237,18 @@ class MarketMakingEnv(gym.Env):
 
         # Terminal: liquidate remaining inventory at mid price
         if terminated and self.inventory != 0:
-            liquidation_cost = abs(self.inventory) * row["spread"] / 2 if not np.isnan(row["spread"]) else 0
+            liquidation_cost = (
+                abs(self.inventory) * row["spread"] / 2
+                if not np.isnan(row["spread"])
+                else 0
+            )
             reward -= liquidation_cost
 
-        obs = self._get_observation() if not terminated else np.zeros(self.observation_space.shape, dtype=np.float32)
+        obs = (
+            self._get_observation()
+            if not terminated
+            else np.zeros(self.observation_space.shape, dtype=np.float32)
+        )
 
         info = {
             "inventory": self.inventory,
@@ -261,5 +275,7 @@ class MarketMakingEnv(gym.Env):
             "max_drawdown": np.min(pnl - np.maximum.accumulate(pnl)),
             "n_trades": self.trades_executed,
             "final_inventory": self.inventory,
-            "max_inventory": max(abs(i) for i in self._inventory_history) if self._inventory_history else 0,
+            "max_inventory": max(abs(i) for i in self._inventory_history)
+            if self._inventory_history
+            else 0,
         }

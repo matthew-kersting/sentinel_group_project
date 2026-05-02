@@ -86,7 +86,10 @@ def _lifespan_per_bucket(df: pl.DataFrame, freq: str) -> pl.DataFrame:
         .group_by("order_id")
         .agg(
             [
-                pl.col("ts_event").filter(pl.col("action") == "A").first().alias("add_time"),
+                pl.col("ts_event")
+                .filter(pl.col("action") == "A")
+                .first()
+                .alias("add_time"),
                 pl.col("ts_event")
                 .filter(pl.col("action").is_in(["C", "F", "T"]))
                 .first()
@@ -222,12 +225,18 @@ def build_ofi_features(
             [
                 # Order-flow imbalance from limit adds
                 (
-                    (pl.col("buy_vol").cast(pl.Int64) - pl.col("sell_vol").cast(pl.Int64))
+                    (
+                        pl.col("buy_vol").cast(pl.Int64)
+                        - pl.col("sell_vol").cast(pl.Int64)
+                    )
                     / (pl.col("buy_vol") + pl.col("sell_vol") + _EPS)
                 ).alias("ofi"),
                 # Trade-direction imbalance
                 (
-                    (pl.col("trade_buy_vol").cast(pl.Int64) - pl.col("trade_sell_vol").cast(pl.Int64))
+                    (
+                        pl.col("trade_buy_vol").cast(pl.Int64)
+                        - pl.col("trade_sell_vol").cast(pl.Int64)
+                    )
                     / (pl.col("trade_buy_vol") + pl.col("trade_sell_vol") + _EPS)
                 ).alias("trade_ofi"),
                 # Fraction of add volume that was subsequently cancelled (same bucket)
@@ -237,14 +246,12 @@ def build_ofi_features(
                 ).alias("cancel_ratio"),
                 # Cancel events / add events (count-based)
                 (
-                    pl.col("n_cancels")
-                    / (pl.col("n_bids") + pl.col("n_asks") + _EPS)
+                    pl.col("n_cancels") / (pl.col("n_bids") + pl.col("n_asks") + _EPS)
                 ).alias("cancel_rate"),
                 # Cancel count / trade count (~10:1 is normal for electronic markets)
-                (
-                    pl.col("n_cancels")
-                    / (pl.col("n_trades") + _EPS)
-                ).alias("cancel_to_trade_ratio"),
+                (pl.col("n_cancels") / (pl.col("n_trades") + _EPS)).alias(
+                    "cancel_to_trade_ratio"
+                ),
             ]
         )
         .sort("bucket")

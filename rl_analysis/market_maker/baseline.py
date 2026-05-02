@@ -68,10 +68,12 @@ class AvellanedaStoikov:
         dt = max(time_remaining * self.T, 1e-6)
 
         # Reservation price: skew away from inventory
-        reservation = mid_price - inventory * self.gamma * (sigma ** 2) * dt
+        reservation = mid_price - inventory * self.gamma * (sigma**2) * dt
 
         # Optimal spread
-        spread = self.gamma * (sigma ** 2) * dt + (2 / self.gamma) * np.log(1 + self.gamma / self.k)
+        spread = self.gamma * (sigma**2) * dt + (2 / self.gamma) * np.log(
+            1 + self.gamma / self.k
+        )
 
         # Ensure minimum spread of 1 tick
         spread = max(spread, self.tick_size)
@@ -167,7 +169,9 @@ def grid_search_baseline(env, gammas=None, ks=None) -> pd.DataFrame:
             stats["gamma"] = g
             stats["k"] = k
             results.append(stats)
-            print(f"  gamma={g:.2f}, k={k:.1f}: PnL={stats['total_pnl']:.2f}, "
-                  f"Sharpe={stats['sharpe']:.2f}, Trades={stats['n_trades']}")
+            print(
+                f"  gamma={g:.2f}, k={k:.1f}: PnL={stats['total_pnl']:.2f}, "
+                f"Sharpe={stats['sharpe']:.2f}, Trades={stats['n_trades']}"
+            )
 
     return pd.DataFrame(results)

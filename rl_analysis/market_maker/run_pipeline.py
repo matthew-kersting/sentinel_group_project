@@ -16,6 +16,7 @@ import json
 import numpy as np
 import pandas as pd
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from collections import Counter
@@ -33,7 +34,7 @@ SNAPSHOT_DIR = "snapshots"
 RESULTS_DIR = "rl_results"
 MODEL_DIR = "models"
 
-EPISODE_LENGTH = 3600   # 1 hour
+EPISODE_LENGTH = 3600  # 1 hour
 DQN_TIMESTEPS = 100_000
 PPO_TIMESTEPS = 200_000
 
@@ -49,7 +50,9 @@ def step1_preprocess():
     preprocess_all(DATA_DIR, SNAPSHOT_DIR, freq="1s")
 
 
-def _run_agent_episode(env, model_or_as, test_data, seed=42, is_as=False, as_model=None):
+def _run_agent_episode(
+    env, model_or_as, test_data, seed=42, is_as=False, as_model=None
+):
     """Run one episode and collect PnL/inventory/action traces."""
     env_local = MarketMakingEnv(data=test_data, episode_length=EPISODE_LENGTH)
     obs, _ = env_local.reset(seed=seed)
@@ -63,8 +66,12 @@ def _run_agent_episode(env, model_or_as, test_data, seed=42, is_as=False, as_mod
             sigma = sigma if not np.isnan(sigma) and sigma > 0 else 0.001
             t_rem = 1.0 - obs[-1]
             action = as_model.get_action_for_env(
-                mid, env_local.inventory, sigma, t_rem,
-                env_local.BID_OFFSETS, env_local.ASK_OFFSETS
+                mid,
+                env_local.inventory,
+                sigma,
+                t_rem,
+                env_local.BID_OFFSETS,
+                env_local.ASK_OFFSETS,
             )
         else:
             action, _ = model_or_as.predict(obs, deterministic=True)
@@ -95,8 +102,10 @@ def step2_baseline(test_data):
     )
 
     best = results.sort_values("total_pnl", ascending=False).iloc[0]
-    print(f"\nBest AS: gamma={best['gamma']}, k={best['k']}, "
-          f"PnL={best['total_pnl']:.2f}, Sharpe={best['sharpe']:.2f}")
+    print(
+        f"\nBest AS: gamma={best['gamma']}, k={best['k']}, "
+        f"PnL={best['total_pnl']:.2f}, Sharpe={best['sharpe']:.2f}"
+    )
 
     as_model = AvellanedaStoikov(gamma=best["gamma"], k=best["k"])
     stats, pnl, inv, actions = _run_agent_episode(
@@ -117,10 +126,15 @@ def step3_train_dqn(train_data, test_data):
     train_env = Monitor(MarketMakingEnv(data=train_data, episode_length=EPISODE_LENGTH))
 
     model = DQN(
-        "MlpPolicy", train_env,
-        learning_rate=1e-4, buffer_size=50_000, learning_starts=1_000,
-        batch_size=64, gamma=0.99,
-        exploration_fraction=0.3, exploration_final_eps=0.05,
+        "MlpPolicy",
+        train_env,
+        learning_rate=1e-4,
+        buffer_size=50_000,
+        learning_starts=1_000,
+        batch_size=64,
+        gamma=0.99,
+        exploration_fraction=0.3,
+        exploration_final_eps=0.05,
         target_update_interval=500,
         policy_kwargs={"net_arch": [128, 128]},
         verbose=1,
@@ -129,11 +143,11 @@ def step3_train_dqn(train_data, test_data):
     model.learn(total_timesteps=DQN_TIMESTEPS)
     model.save(os.path.join(MODEL_DIR, "dqn_market_maker"))
 
-    stats, pnl, inv, actions = _run_agent_episode(
-        None, model, test_data, seed=42
+    stats, pnl, inv, actions = _run_agent_episode(None, model, test_data, seed=42)
+    print(
+        f"DQN: PnL={stats['total_pnl']:.2f}, Sharpe={stats['sharpe']:.2f}, "
+        f"Trades={stats['n_trades']}"
     )
-    print(f"DQN: PnL={stats['total_pnl']:.2f}, Sharpe={stats['sharpe']:.2f}, "
-          f"Trades={stats['n_trades']}")
 
     return model, stats, pnl, inv, actions
 
@@ -146,9 +160,16 @@ def step4_train_ppo(train_data, test_data):
     train_env = Monitor(MarketMakingEnv(data=train_data, episode_length=EPISODE_LENGTH))
 
     model = PPO(
-        "MlpPolicy", train_env,
-        learning_rate=3e-4, n_steps=2048, batch_size=64, n_epochs=10,
-        gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
+        "MlpPolicy",
+        train_env,
+        learning_rate=3e-4,
+        n_steps=2048,
+        batch_size=64,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        ent_coef=0.01,
         policy_kwargs={"net_arch": [128, 128]},
         verbose=1,
     )
@@ -156,29 +177,53 @@ def step4_train_ppo(train_data, test_data):
     model.learn(total_timesteps=PPO_TIMESTEPS)
     model.save(os.path.join(MODEL_DIR, "ppo_market_maker"))
 
-    stats, pnl, inv, actions = _run_agent_episode(
-        None, model, test_data, seed=42
+    stats, pnl, inv, actions = _run_agent_episode(None, model, test_data, seed=42)
+    print(
+        f"PPO: PnL={stats['total_pnl']:.2f}, Sharpe={stats['sharpe']:.2f}, "
+        f"Trades={stats['n_trades']}"
     )
-    print(f"PPO: PnL={stats['total_pnl']:.2f}, Sharpe={stats['sharpe']:.2f}, "
-          f"Trades={stats['n_trades']}")
 
     return model, stats, pnl, inv, actions
 
 
-def step5_compare(as_stats, as_pnl, as_inv, as_actions,
-                  dqn_stats, dqn_pnl, dqn_inv, dqn_actions,
-                  ppo_stats, ppo_pnl, ppo_inv, ppo_actions):
+def step5_compare(
+    as_stats,
+    as_pnl,
+    as_inv,
+    as_actions,
+    dqn_stats,
+    dqn_pnl,
+    dqn_inv,
+    dqn_actions,
+    ppo_stats,
+    ppo_pnl,
+    ppo_inv,
+    ppo_actions,
+):
     print("\n" + "=" * 60)
     print("STEP 5: Comparison & Visualization")
     print("=" * 60)
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    comparison = pd.DataFrame([
-        {"Agent": "Avellaneda-Stoikov", **{k: v for k, v in as_stats.items() if k not in ("gamma", "k")}},
-        {"Agent": "DQN", **dqn_stats},
-        {"Agent": "PPO", **ppo_stats},
-    ])
-    cols = ["Agent", "total_pnl", "sharpe", "max_drawdown", "n_trades", "final_inventory", "max_inventory"]
+    comparison = pd.DataFrame(
+        [
+            {
+                "Agent": "Avellaneda-Stoikov",
+                **{k: v for k, v in as_stats.items() if k not in ("gamma", "k")},
+            },
+            {"Agent": "DQN", **dqn_stats},
+            {"Agent": "PPO", **ppo_stats},
+        ]
+    )
+    cols = [
+        "Agent",
+        "total_pnl",
+        "sharpe",
+        "max_drawdown",
+        "n_trades",
+        "final_inventory",
+        "max_inventory",
+    ]
     print("\n" + comparison[cols].to_string(index=False))
     comparison.to_csv(os.path.join(RESULTS_DIR, "comparison.csv"), index=False)
 
@@ -211,11 +256,13 @@ def step5_compare(as_stats, as_pnl, as_inv, as_actions,
     # --- Plot 2: Action distributions ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    for idx, (acts, name, color) in enumerate([
-        (as_actions, "Avellaneda-Stoikov", "steelblue"),
-        (dqn_actions, "DQN", "coral"),
-        (ppo_actions, "PPO", "seagreen"),
-    ]):
+    for idx, (acts, name, color) in enumerate(
+        [
+            (as_actions, "Avellaneda-Stoikov", "steelblue"),
+            (dqn_actions, "DQN", "coral"),
+            (ppo_actions, "PPO", "seagreen"),
+        ]
+    ):
         counts = Counter(acts)
         x = list(range(25))
         y = [counts.get(i, 0) for i in x]
@@ -232,11 +279,13 @@ def step5_compare(as_stats, as_pnl, as_inv, as_actions,
     # --- Plot 3: Action heatmaps ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    for idx, (acts, name) in enumerate([
-        (as_actions, "Avellaneda-Stoikov"),
-        (dqn_actions, "DQN"),
-        (ppo_actions, "PPO"),
-    ]):
+    for idx, (acts, name) in enumerate(
+        [
+            (as_actions, "Avellaneda-Stoikov"),
+            (dqn_actions, "DQN"),
+            (ppo_actions, "PPO"),
+        ]
+    ):
         grid = np.zeros((5, 5))
         for a in acts:
             bid_idx = a // 5
@@ -255,7 +304,9 @@ def step5_compare(as_stats, as_pnl, as_inv, as_actions,
         axes[idx].set_title(f"{name}")
         for bi in range(5):
             for ai in range(5):
-                axes[idx].text(ai, bi, f"{grid[bi, ai]:.2f}", ha="center", va="center", fontsize=8)
+                axes[idx].text(
+                    ai, bi, f"{grid[bi, ai]:.2f}", ha="center", va="center", fontsize=8
+                )
         fig.colorbar(im, ax=axes[idx], shrink=0.8)
 
     plt.suptitle("Action Frequency Heatmaps (bid offset × ask offset)", fontsize=14)
@@ -266,9 +317,14 @@ def step5_compare(as_stats, as_pnl, as_inv, as_actions,
 
     # --- Save results ---
     def serialize(stats):
-        return {k: float(v) if isinstance(v, (np.floating, float)) else
-                   int(v) if isinstance(v, (np.integer, int)) else v
-                for k, v in stats.items()}
+        return {
+            k: float(v)
+            if isinstance(v, (np.floating, float))
+            else int(v)
+            if isinstance(v, (np.integer, int))
+            else v
+            for k, v in stats.items()
+        }
 
     all_results = {
         "avellaneda_stoikov": serialize(as_stats),
@@ -280,12 +336,12 @@ def step5_compare(as_stats, as_pnl, as_inv, as_actions,
     print("Saved results.json")
 
     min_len = min(len(as_pnl), len(dqn_pnl), len(ppo_pnl))
-    pd.DataFrame({
-        "as": as_pnl[:min_len], "dqn": dqn_pnl[:min_len], "ppo": ppo_pnl[:min_len]
-    }).to_csv(os.path.join(RESULTS_DIR, "pnl_traces.csv"), index=False)
-    pd.DataFrame({
-        "as": as_inv[:min_len], "dqn": dqn_inv[:min_len], "ppo": ppo_inv[:min_len]
-    }).to_csv(os.path.join(RESULTS_DIR, "inventory_traces.csv"), index=False)
+    pd.DataFrame(
+        {"as": as_pnl[:min_len], "dqn": dqn_pnl[:min_len], "ppo": ppo_pnl[:min_len]}
+    ).to_csv(os.path.join(RESULTS_DIR, "pnl_traces.csv"), index=False)
+    pd.DataFrame(
+        {"as": as_inv[:min_len], "dqn": dqn_inv[:min_len], "ppo": ppo_inv[:min_len]}
+    ).to_csv(os.path.join(RESULTS_DIR, "inventory_traces.csv"), index=False)
     print("Saved trace data for .rmd report")
 
 
@@ -304,9 +360,18 @@ def main():
     _, ppo_stats, ppo_pnl, ppo_inv, ppo_actions = step4_train_ppo(train_data, test_data)
 
     step5_compare(
-        as_stats, as_pnl, as_inv, as_actions,
-        dqn_stats, dqn_pnl, dqn_inv, dqn_actions,
-        ppo_stats, ppo_pnl, ppo_inv, ppo_actions,
+        as_stats,
+        as_pnl,
+        as_inv,
+        as_actions,
+        dqn_stats,
+        dqn_pnl,
+        dqn_inv,
+        dqn_actions,
+        ppo_stats,
+        ppo_pnl,
+        ppo_inv,
+        ppo_actions,
     )
 
     print("\n" + "=" * 60)

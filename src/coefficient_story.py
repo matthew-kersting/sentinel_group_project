@@ -41,8 +41,8 @@ FEATURES = [
 ]
 
 # Standardized coefficients (illustrative)
-RIDGE_COEF = [0.32, 0.40, -0.04, -0.03, 0.02, -0.01]   # M3 Ridge — direction
-LOGIT_COEF = [0.85, 0.30, 0.55, 0.40, -0.20, 0.10]      # M5 Logistic — activity
+RIDGE_COEF = [0.32, 0.40, -0.04, -0.03, 0.02, -0.01]  # M3 Ridge — direction
+LOGIT_COEF = [0.85, 0.30, 0.55, 0.40, -0.20, 0.10]  # M5 Logistic — activity
 
 OUT = Path(__file__).parent.parent / "data" / "output" / "coefficient_story.png"
 

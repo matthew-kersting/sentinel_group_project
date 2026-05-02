@@ -1,6 +1,6 @@
 # Sentinel Group Project — Theory of Machine Learning
 
-Predicting short-term equity returns from NASDAQ ITCH market-by-order (MBO) data using order-flow imbalance (OFI) signals.
+Predicting short-term equity returns and market activity from NASDAQ ITCH market-by-order (MBO) data using order-flow imbalance (OFI) signals and reinforcement learning.
 
 Data source: **QBTS (D-Wave Quantum)** — NASDAQ ITCH MBO feed via Databento, October 2025 (~32 trading days, 46.8M events).
 
@@ -22,8 +22,24 @@ Data source: **QBTS (D-Wave Quantum)** — NASDAQ ITCH MBO feed via Databento, O
 │   ├── data_overview.py            # Slide figure: schema card + event distribution + price series
 │   ├── market_activity.py          # Slide figure: 4-panel market activity deep-dive
 │   ├── mbo_explainer.py            # Slide figure: synthetic order lifecycle diagram
-│   ├── ofi_analysis.py             # OFI quantification + linear regression model
+│   ├── ofi_analysis.py             # OFI quantification + univariate linear regression
+│   ├── baseline_models.py          # OLS / Ridge regression + logistic classifiers (M1–M5)
+│   ├── coefficient_story.py        # Standardized coefficient comparison (direction vs activity)
 │   └── rf_classifier.py            # Random Forest price-direction classifier (3-class)
+│
+├── rl_analysis/
+│   ├── market_maker/               # RL market-making environment + training pipeline
+│   │   ├── env.py                  # Gymnasium environment (1-second steps, 25 actions)
+│   │   ├── baseline.py             # Avellaneda-Stoikov analytical baseline + grid search
+│   │   ├── data_preprocessor.py    # MBO .dbn.zst → 1-second feature snapshots
+│   │   ├── train.py                # DQN / PPO training with stable-baselines3
+│   │   ├── evaluate_multi.py       # Multi-episode statistical evaluation
+│   │   ├── ablation.py             # Feature ablation study
+│   │   └── run_pipeline.py         # End-to-end orchestration script
+│   ├── models/                     # Trained agent checkpoints (gitignored)
+│   ├── rl_results/                 # Result plots and CSVs (gitignored)
+│   ├── snapshots/                  # Preprocessed 1-second MBO snapshots
+│   └── rl_market_maker.ipynb       # RL analysis notebook
 │
 ├── format_dataset.py               # Converts raw .dbn.zst files → parquet
 ├── data_exploration.ipynb          # Interactive EDA notebook
@@ -42,10 +58,10 @@ uv venv --python 3.12
 uv sync
 ```
 
-Run any script with:
+Run any script from the project root with:
 
 ```bash
-cd src && uv run python <script>.py
+uv run python src/<script>.py
 ```
 
 ---
@@ -67,11 +83,11 @@ uv run python format_dataset.py data/raw/XNAS-<ID> --out_dir data/formatted
 
 ---
 
-## Pipeline
+## Analysis Pipeline
 
 ### 1. Data utilities (`src/data_utils.py`)
 
-The core feature pipeline. Import and use directly:
+Core feature pipeline shared by all downstream scripts. Import directly:
 
 ```python
 from data_utils import load_splits
@@ -79,16 +95,14 @@ from data_utils import load_splits
 train, val, test = load_splits(freq="1m", horizon=5)
 ```
 
-**Steps:**
-
 | Function | Description |
 |---|---|
-| `load_raw()` | Lazy-scans the parquet (5 columns only), filters to regular session (9:30–4 PM ET), drops resets and zero-size rows |
-| `build_ofi_features(df, freq)` | Aggregates into time buckets; computes OFI, trade OFI, VWAP, cancel ratio |
-| `add_forward_returns(features, horizon)` | Appends `fwd_return = log(vwap[t+h] / vwap[t])` as the prediction target |
+| `load_raw()` | Lazy-scans the parquet, filters to regular session (9:30–4 PM ET), drops resets and zero-size rows |
+| `build_ofi_features(df, freq)` | Aggregates into time buckets; computes OFI, trade OFI, VWAP, cancel features, order lifespan |
+| `add_forward_returns(features, horizon)` | Appends `fwd_return = log(vwap[t+h] / vwap[t])` as the regression target |
 | `split_by_date(df)` | Hard time-ordered split — no shuffling, no look-ahead leakage |
 
-**Default splits** (based on Oct 2025 data):
+**Default splits** (Oct 2025 data):
 
 | Split | Dates | ~Share |
 |---|---|---|
@@ -99,83 +113,125 @@ train, val, test = load_splits(freq="1m", horizon=5)
 **OFI definition:**
 
 ```
-ofi = (buy_vol − sell_vol) / (buy_vol + sell_vol)
+ofi = (buy_vol − sell_vol) / (buy_vol + sell_vol)   ∈ [−1, +1]
 ```
 
-Where `buy_vol` / `sell_vol` are the summed sizes of limit-order Add events on the bid / ask side within each time bucket. Bounded in [−1, +1].
+`buy_vol` / `sell_vol` are summed sizes of limit-order Add events on the bid / ask side within each bucket.
 
 ---
 
 ### 2. OFI analysis (`src/ofi_analysis.py`)
 
-Quantifies OFI and fits a simple linear model. Run from `src/`:
+Quantifies OFI and fits a univariate linear model. Outputs console stats and a 4-panel figure.
 
 ```bash
-uv run python ofi_analysis.py
+uv run python src/ofi_analysis.py
 ```
 
-**Outputs:**
-- Console: OFI summary stats + linear regression table (α, β, t-stat, p-value, R², RMSE, IC across all three splits)
-- `data/output/ofi_analysis.png` — 4-panel figure:
-  - **A** OFI distribution
-  - **B** OFI time series with rolling mean
-  - **C** Binned OFI vs mean forward return (bps), with OLS fit line
-  - **D** Daily information coefficient (Pearson corr per day)
-
-**Model:** `fwd_return = α + β·OFI` fitted on train, evaluated on val and test.
+**Output — `data/output/ofi_analysis.png`:**
+- **A** OFI distribution
+- **B** OFI time series with 30-bucket rolling mean
+- **C** Binned OFI vs mean forward return (bps) with OLS fit
+- **D** Daily information coefficient (Pearson r per trading day)
 
 ---
 
-### 3. Random Forest classifier (`src/rf_classifier.py`)
+### 3. Baseline models (`src/baseline_models.py`)
 
-Predicts price direction (Up / Flat / Down) from rolling event-level MBO features.
-Originally authored by Shangze; data loading adapted to read from `xnas_itch_mbo.parquet` (first 150k rows), figures saved to `data/output/`.
+Fits five linear models on the full feature block and evaluates across all splits.
 
 ```bash
-uv run ./src/rf_classifier.py
+uv run python src/baseline_models.py
 ```
 
-**Feature engineering** (event-level, rolling windows of 10 / 30 / 100 events):
-- Price mean, std, min, max, range
-- Volume sum and mean
-- Order-Flow Imbalance (`ofi_10`, `ofi_30`, `ofi_100`)
-- Trade event ratio
-- Price momentum returns (lag 1, 5, 20)
-- Price deviation from rolling mean
-- Hour, minute, session
+**Regression (predicting `fwd_return`):**
+- M1 — OLS, univariate (OFI only)
+- M2 — OLS, multivariate (OFI + trade-OFI + n_trades + cancel block + lifespan)
+- M3 — Ridge (same features as M2, α = 1.0)
 
-**Label:** 3-class direction 10 events ahead — Up (+1), Flat (0), Down (−1) — with a 0.01% threshold.
+**Classification (predicting `active_next`):**
+- M4 — Logistic regression
+- M5 — Logistic regression + OFI lags (lag 1, lag 2)
+
+**Output — `data/output/baseline_models.png`:** IC by model, coefficient comparison (M2 vs M3), AUC by model, ROC curves.
+
+---
+
+### 4. Coefficient story (`src/coefficient_story.py`)
+
+Plots standardized coefficients from M3 (Ridge, direction) and M5 (Logistic, activity) side-by-side to show which features drive each problem.
+
+```bash
+uv run python src/coefficient_story.py
+```
+
+**Output — `data/output/coefficient_story.png`**
+
+---
+
+### 5. Random Forest classifier (`src/rf_classifier.py`)
+
+Predicts price direction (Up / Flat / Down) from rolling event-level MBO features.
+
+```bash
+uv run python src/rf_classifier.py
+```
+
+**Features** (rolling windows of 10 / 30 / 100 events): price stats, volume, OFI, trade ratio, momentum, intraday time.
+
+**Label:** 3-class direction 10 events ahead (threshold ± 0.01%).
 
 **Model:** Random Forest (300 trees, `max_depth=12`, `class_weight="balanced"`).
 
-**Outputs (`data/output/`):**
-
-| File | Description |
-|---|---|
-| `fig1_label_distribution.png` | Training set class balance |
-| `fig2_confusion_matrix.png` | Row-normalized confusion matrix on test set |
-| `fig3_feature_importance.png` | Gini importance, top 20 features |
-| `fig4_roc_curve.png` | One-vs-rest ROC curves with AUC |
-| `fig5_pr_curve.png` | Precision-Recall curves with AP |
-| `fig6_cv_scores.png` | 5-fold CV accuracy on train set |
-| `fig7_prob_distribution.png` | Predicted probability histograms by class |
-| `fig8_calibration.png` | Confidence calibration curves |
-| `fig9_permutation_importance.png` | Permutation importance on test set |
-| `fig10_hyperparam_sensitivity.png` | Accuracy vs n_estimators |
-| `fig11_depth_sensitivity.png` | Accuracy vs max_depth |
-| `fig12_learning_curve.png` | Learning curve (train size vs accuracy) |
+**Outputs (`data/output/`):** `fig1_` through `fig12_` — label distribution, confusion matrix, feature importance, ROC/PR curves, CV scores, calibration, permutation importance, hyperparameter sensitivity, learning curve.
 
 ---
 
-### 4. Slide figures
+### 6. Slide figures (`src/`)
 
 All figures use the shared theme in `src/theme.py` and save to `data/output/`.
+
+```bash
+uv run python src/data_overview.py
+uv run python src/market_activity.py
+uv run python src/mbo_explainer.py
+```
 
 | Script | Output | Description |
 |---|---|---|
 | `data_overview.py` | `data_overview.png` | Schema card, event-type donut, daily close price |
 | `market_activity.py` | `market_activity.png` | Daily volume, intraday profile, order size distribution, action×side heatmap |
-| `mbo_explainer.py` | `mbo_explainer.png` | Synthetic order lifecycle diagram (illustrative, no real data) |
+| `mbo_explainer.py` | `mbo_explainer.png` | Synthetic order lifecycle diagram |
+
+---
+
+## RL Market-Making (`rl_analysis/`)
+
+A reinforcement learning agent trained to act as a market maker, posting bids and asks to earn the spread while managing inventory risk.
+
+**Environment:** `market_maker/env.py` — Gymnasium env with 1-second decision steps and 25 discrete actions (combinations of bid/ask offsets). Reward is realized PnL minus an inventory penalty.
+
+**Baseline:** Avellaneda-Stoikov analytical model (`market_maker/baseline.py`) with grid-search over risk-aversion and spread parameters.
+
+**Agents:** DQN and PPO trained via stable-baselines3 (`market_maker/train.py`).
+
+### Running the pipeline
+
+The pipeline runs from within `rl_analysis/` so that relative paths (`models/`, `rl_results/`, `snapshots/`) resolve correctly.
+
+```bash
+cd rl_analysis
+uv run python -m market_maker.run_pipeline   # full end-to-end
+uv run python -m market_maker.train --algo dqn --timesteps 100000
+uv run python -m market_maker.evaluate_multi
+uv run python -m market_maker.ablation
+```
+
+Pre-trained agent checkpoints are in `rl_analysis/models/` (gitignored). Results and plots are written to `rl_analysis/rl_results/` (gitignored).
+
+The interactive notebook `rl_analysis/rl_market_maker.ipynb` walks through the full analysis.
+
+> **Note:** `run_pipeline.py` step 1 (preprocessing raw `.dbn.zst` → snapshots) expects the raw data directory to be present. Steps 2–4 (baseline, DQN, PPO evaluation) work with the pre-built snapshots in `rl_analysis/snapshots/`.
 
 ---
 

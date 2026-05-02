@@ -28,20 +28,24 @@ def load_day_dbn(filepath: str) -> pd.DataFrame:
             records = decoder.write_and_decode(chunk)
             for r in records:
                 if isinstance(r, dbn.MBOMsg):
-                    rows.append({
-                        "ts_event": pd.Timestamp(r.ts_event, unit="ns", tz="UTC"),
-                        "action": chr(r.action),
-                        "side": chr(r.side),
-                        "price": r.price / dbn.FIXED_PRICE_SCALE,
-                        "size": int(r.size),
-                        "order_id": int(r.order_id),
-                    })
+                    rows.append(
+                        {
+                            "ts_event": pd.Timestamp(r.ts_event, unit="ns", tz="UTC"),
+                            "action": chr(r.action),
+                            "side": chr(r.side),
+                            "price": r.price / dbn.FIXED_PRICE_SCALE,
+                            "size": int(r.size),
+                            "order_id": int(r.order_id),
+                        }
+                    )
 
     df = pd.DataFrame(rows)
     return df
 
 
-def reconstruct_book_features_for_day(df: pd.DataFrame, freq: str = "1s") -> pd.DataFrame:
+def reconstruct_book_features_for_day(
+    df: pd.DataFrame, freq: str = "1s"
+) -> pd.DataFrame:
     """
     Process a single day of MBO events into time-bucketed snapshots.
     Tracks the order book incrementally and emits features per bucket.
@@ -110,21 +114,33 @@ def reconstruct_book_features_for_day(df: pd.DataFrame, freq: str = "1s") -> pd.
             total_top = bb_sz + ba_sz
             bimb = (bb_sz - ba_sz) / total_top if total_top > 0 else 0.0
 
-            records.append({
-                "timestamp": buckets[bucket_idx],
-                "mid_price": mid,
-                "best_bid": bb, "best_ask": ba,
-                "best_bid_size": bb_sz, "best_ask_size": ba_sz,
-                "spread": spread, "ofi": ofi, "book_imbalance": bimb,
-                "add_bid_vol": add_bid_vol, "add_ask_vol": add_ask_vol,
-                "cancel_bid_vol": cancel_bid_vol, "cancel_ask_vol": cancel_ask_vol,
-                "n_events": n_events,
-                "max_buy_trade_price": max(trades_buy_prices) if trades_buy_prices else np.nan,
-                "min_sell_trade_price": min(trades_sell_prices) if trades_sell_prices else np.nan,
-                "buy_trade_volume": sum(trades_buy_sizes),
-                "sell_trade_volume": sum(trades_sell_sizes),
-                "n_trades": len(trades_buy_prices) + len(trades_sell_prices),
-            })
+            records.append(
+                {
+                    "timestamp": buckets[bucket_idx],
+                    "mid_price": mid,
+                    "best_bid": bb,
+                    "best_ask": ba,
+                    "best_bid_size": bb_sz,
+                    "best_ask_size": ba_sz,
+                    "spread": spread,
+                    "ofi": ofi,
+                    "book_imbalance": bimb,
+                    "add_bid_vol": add_bid_vol,
+                    "add_ask_vol": add_ask_vol,
+                    "cancel_bid_vol": cancel_bid_vol,
+                    "cancel_ask_vol": cancel_ask_vol,
+                    "n_events": n_events,
+                    "max_buy_trade_price": max(trades_buy_prices)
+                    if trades_buy_prices
+                    else np.nan,
+                    "min_sell_trade_price": min(trades_sell_prices)
+                    if trades_sell_prices
+                    else np.nan,
+                    "buy_trade_volume": sum(trades_buy_sizes),
+                    "sell_trade_volume": sum(trades_sell_sizes),
+                    "n_trades": len(trades_buy_prices) + len(trades_sell_prices),
+                }
+            )
 
             prev_bb, prev_bb_sz, prev_ba, prev_ba_sz = bb, bb_sz, ba, ba_sz
             trades_buy_prices, trades_buy_sizes = [], []
@@ -234,7 +250,11 @@ def load_snapshots(snapshot_dir: str, train_days: int = None) -> tuple:
     if train_days is None:
         train_days = len(dfs) - 5
 
-    train = pd.concat(dfs[:train_days], ignore_index=True) if train_days > 0 else pd.DataFrame()
+    train = (
+        pd.concat(dfs[:train_days], ignore_index=True)
+        if train_days > 0
+        else pd.DataFrame()
+    )
     test = pd.concat(dfs[train_days:], ignore_index=True)
 
     print(f"Train: {len(train):,} snapshots ({train_days} days)")
@@ -244,6 +264,7 @@ def load_snapshots(snapshot_dir: str, train_days: int = None) -> tuple:
 
 if __name__ == "__main__":
     import sys
+
     data_dir = sys.argv[1] if len(sys.argv) > 1 else "XNAS-20260227-QVD7UYV7GQ"
     out_dir = sys.argv[2] if len(sys.argv) > 2 else "snapshots"
     preprocess_all(data_dir, out_dir)

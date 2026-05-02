@@ -21,8 +21,9 @@ EPISODE_LENGTH = 3600
 N_EPISODES = 50
 
 
-def evaluate_agent_multi(agent_name, test_data, n_episodes=N_EPISODES,
-                         model=None, as_model=None):
+def evaluate_agent_multi(
+    agent_name, test_data, n_episodes=N_EPISODES, model=None, as_model=None
+):
     """Run agent for n_episodes with different random seeds, collect stats."""
     records = []
     for ep in range(n_episodes):
@@ -37,8 +38,7 @@ def evaluate_agent_multi(agent_name, test_data, n_episodes=N_EPISODES,
                 sigma = sigma if not np.isnan(sigma) and sigma > 0 else 0.001
                 t_rem = 1.0 - obs[-1]
                 action = as_model.get_action_for_env(
-                    mid, env.inventory, sigma, t_rem,
-                    env.BID_OFFSETS, env.ASK_OFFSETS
+                    mid, env.inventory, sigma, t_rem, env.BID_OFFSETS, env.ASK_OFFSETS
                 )
             else:
                 action, _ = model.predict(obs, deterministic=True)
@@ -53,7 +53,7 @@ def evaluate_agent_multi(agent_name, test_data, n_episodes=N_EPISODES,
         records.append(stats)
 
         if (ep + 1) % 10 == 0:
-            print(f"  {agent_name}: {ep+1}/{n_episodes} episodes done")
+            print(f"  {agent_name}: {ep + 1}/{n_episodes} episodes done")
 
     return pd.DataFrame(records)
 
@@ -94,16 +94,19 @@ def main():
         sharpe = sub["sharpe"]
         inv = sub["final_inventory"].abs()
         print(f"\n{name}:")
-        print(f"  PnL:     mean={pnl.mean():.2f}, std={pnl.std():.2f}, "
-              f"95% CI=[{pnl.mean() - 1.96*pnl.std()/np.sqrt(len(pnl)):.2f}, "
-              f"{pnl.mean() + 1.96*pnl.std()/np.sqrt(len(pnl)):.2f}]")
+        print(
+            f"  PnL:     mean={pnl.mean():.2f}, std={pnl.std():.2f}, "
+            f"95% CI=[{pnl.mean() - 1.96 * pnl.std() / np.sqrt(len(pnl)):.2f}, "
+            f"{pnl.mean() + 1.96 * pnl.std() / np.sqrt(len(pnl)):.2f}]"
+        )
         print(f"  Sharpe:  mean={sharpe.mean():.2f}, std={sharpe.std():.2f}")
         print(f"  |Inv|:   mean={inv.mean():.0f}, max={inv.max():.0f}")
         wins = (pnl > 0).sum()
-        print(f"  Win rate: {wins}/{len(pnl)} ({100*wins/len(pnl):.0f}%)")
+        print(f"  Win rate: {wins}/{len(pnl)} ({100 * wins / len(pnl):.0f}%)")
 
     # Paired t-test: DQN vs AS, PPO vs AS
     from scipy import stats as scipy_stats
+
     as_pnl = as_df["total_pnl"].values
     dqn_pnl = dqn_df["total_pnl"].values
     ppo_pnl = ppo_df["total_pnl"].values
@@ -112,26 +115,38 @@ def main():
     t_ppo, p_ppo = scipy_stats.ttest_ind(ppo_pnl, as_pnl)
 
     print(f"\nStatistical tests (two-sample t-test vs AS):")
-    print(f"  DQN vs AS: t={t_dqn:.3f}, p={p_dqn:.4f} {'***' if p_dqn < 0.01 else '**' if p_dqn < 0.05 else 'ns'}")
-    print(f"  PPO vs AS: t={t_ppo:.3f}, p={p_ppo:.4f} {'***' if p_ppo < 0.01 else '**' if p_ppo < 0.05 else 'ns'}")
+    print(
+        f"  DQN vs AS: t={t_dqn:.3f}, p={p_dqn:.4f} {'***' if p_dqn < 0.01 else '**' if p_dqn < 0.05 else 'ns'}"
+    )
+    print(
+        f"  PPO vs AS: t={t_ppo:.3f}, p={p_ppo:.4f} {'***' if p_ppo < 0.01 else '**' if p_ppo < 0.05 else 'ns'}"
+    )
 
     # Save test results
     test_results = {
         "n_episodes": N_EPISODES,
-        "AS": {"pnl_mean": float(as_df["total_pnl"].mean()),
-               "pnl_std": float(as_df["total_pnl"].std()),
-               "sharpe_mean": float(as_df["sharpe"].mean()),
-               "win_rate": float((as_df["total_pnl"] > 0).mean())},
-        "DQN": {"pnl_mean": float(dqn_df["total_pnl"].mean()),
-                "pnl_std": float(dqn_df["total_pnl"].std()),
-                "sharpe_mean": float(dqn_df["sharpe"].mean()),
-                "win_rate": float((dqn_df["total_pnl"] > 0).mean()),
-                "vs_as_t": float(t_dqn), "vs_as_p": float(p_dqn)},
-        "PPO": {"pnl_mean": float(ppo_df["total_pnl"].mean()),
-                "pnl_std": float(ppo_df["total_pnl"].std()),
-                "sharpe_mean": float(ppo_df["sharpe"].mean()),
-                "win_rate": float((ppo_df["total_pnl"] > 0).mean()),
-                "vs_as_t": float(t_ppo), "vs_as_p": float(p_ppo)},
+        "AS": {
+            "pnl_mean": float(as_df["total_pnl"].mean()),
+            "pnl_std": float(as_df["total_pnl"].std()),
+            "sharpe_mean": float(as_df["sharpe"].mean()),
+            "win_rate": float((as_df["total_pnl"] > 0).mean()),
+        },
+        "DQN": {
+            "pnl_mean": float(dqn_df["total_pnl"].mean()),
+            "pnl_std": float(dqn_df["total_pnl"].std()),
+            "sharpe_mean": float(dqn_df["sharpe"].mean()),
+            "win_rate": float((dqn_df["total_pnl"] > 0).mean()),
+            "vs_as_t": float(t_dqn),
+            "vs_as_p": float(p_dqn),
+        },
+        "PPO": {
+            "pnl_mean": float(ppo_df["total_pnl"].mean()),
+            "pnl_std": float(ppo_df["total_pnl"].std()),
+            "sharpe_mean": float(ppo_df["sharpe"].mean()),
+            "win_rate": float((ppo_df["total_pnl"] > 0).mean()),
+            "vs_as_t": float(t_ppo),
+            "vs_as_p": float(p_ppo),
+        },
     }
     with open(os.path.join(RESULTS_DIR, "multi_episode_results.json"), "w") as f:
         json.dump(test_results, f, indent=2)
